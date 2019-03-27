@@ -69,3 +69,6 @@ _version.py
 
 # Coverage reports
 .coverage
+
+# Jupyter ipython notebooks
+.ipynb_checkpoints
