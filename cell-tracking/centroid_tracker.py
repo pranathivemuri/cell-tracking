@@ -31,10 +31,10 @@ class CentroidTracker():
         del self.objects[objectID]
         del self.disappeared[objectID]
 
-    def update(self, rects):
-        # check to see if the list of input bounding box rectangles
-        # is empty
-        if len(rects) == 0:
+    def update(self, inputCentroids):
+        # check to see if the list of input objects is empty
+        numberOfObjects = len(inputCentroids)
+        if numberOfObjects == 0:
             # loop over any existing tracked objects and mark them
             # as disappeared
             for objectID in self.disappeared.keys():
@@ -50,20 +50,8 @@ class CentroidTracker():
             # to update
             return self.objects
 
-        # initialize an array of input centroids for the current frame
-        inputCentroids = np.zeros((len(rects), 2), dtype="int")
-
-        # loop over the bounding box rectangles
-        for (i, (startX, startY, endX, endY)) in enumerate(rects):
-            # use the bounding box coordinates to derive the centroid
-            cX = int((startX + endX) / 2.0)
-            cY = int((startY + endY) / 2.0)
-            inputCentroids[i] = (cX, cY)
-
-        # if we are currently not tracking any objects take the input
-        # centroids and register each of them
         if len(self.objects) == 0:
-            for i in range(0, len(inputCentroids)):
+            for i in range(0, numberOfObjects):
                 self.register(inputCentroids[i])
 
         # otherwise, are are currently tracking objects so we need to

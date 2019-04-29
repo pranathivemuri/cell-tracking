@@ -32,19 +32,22 @@ if __name__ == '__main__':
         _, contours, _ = cv2.findContours(binary_image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         # obtain our output predictions, and initialize the list of
         # bounding box rectangles
-        rects = []
+        centroids = []
 
         binary_image = cv2.cvtColor(binary_image, cv2.COLOR_GRAY2RGB)
         # loop over the detections
         for contour in contours:
-            # filter out weak detections by ensuring the predicted
-            # probability is greater than a minimum threshold
+            # Drawing rectangle around the contour
             box = cv2.boundingRect(contour)
             x, y, w, h = box
-            rects.append(box)
             binary_image = cv2.rectangle(binary_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        # update our centroid tracker using the computed set of bounding box rectangles
-        objects = centroid_tracker.update(rects)
+            if len(contour) != 1:
+                moments = cv2.moments(contour)
+                cx = int(moments['m10'] / moments['m00'])
+                cy = int(moments['m01'] / moments['m00'])
+                centroids.append(tuple((cx, cy)))
+        # update our centroid tracker using the computed set of rectangles
+        objects = centroid_tracker.update(centroids)
 
         # loop over the tracked objects
         for (objectID, centroid) in objects.items():
