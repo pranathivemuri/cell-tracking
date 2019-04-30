@@ -39,7 +39,7 @@ class SkeletonStats:
         v followed by x, y, z coordinates
         l followed by indexes to the nodes that form the segment path
     """
-    def __init__(self, arr, arr_lower_limits=None, arr_upper_limits=None, voxel_size=None, cutoff: int=0):
+    def __init__(self, arr, arr_lower_limits=None, arr_upper_limits=None, voxel_size=None, cutoff: int=0, debug=False):
 
         networkx_graph = networkx_graph_from_array.get_networkx_graph_from_array(
             arr,
@@ -56,7 +56,9 @@ class SkeletonStats:
         self.vox_dim = voxel_size
         self.cutoff = cutoff
         self.correct_branch_nodes = []
-        print("cutoff is {}".format(cutoff))
+        self.debug = debug
+        if self.debug:
+            print("cutoff is {}".format(cutoff))
 
     def _set_vessel_segment_stats(self, path: list):
         """
@@ -297,7 +299,8 @@ class SkeletonStats:
 
         for nth_subgraph, skeleton_subgraph in enumerate(_disjoint_graphs):
             num_nodes = skeleton_subgraph.number_of_nodes()
-            print("subgraph contains {} nodes".format(num_nodes))
+            if self.debug:
+                print("subgraph contains {} nodes".format(num_nodes))
             # Properties of this subgraph
             iter_time = time.time()
             unique_degrees = set([degree_item[1] for degree_item in nx.degree(skeleton_subgraph)])
@@ -318,8 +321,9 @@ class SkeletonStats:
                     skeleton_subgraph, cycles, obj_node_index_map)
                 stats += stat
                 obj_lines += obj_line
-            print(
-                "Finished iteration %i in %0.2f s" % (nth_subgraph, time.time() - iter_time))
+            if self.debug:
+                print(
+                    "Finished iteration %i in %0.2f s" % (nth_subgraph, time.time() - iter_time))
         stats += self.get_branches_cycles(self.networkx_graph)
         return stats, obj_lines
 

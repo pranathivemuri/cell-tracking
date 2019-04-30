@@ -6,7 +6,29 @@ import natsort
 import glob
 import cv2
 import numpy as np
+import os
+import pandas as pd
+import scipy.ndimage
 import skimage.morphology
+
+
+def _get_objects(arr):
+    label_skel, count_objects = scipy.ndimage.measurements.label(
+        arr, scipy.ndimage.generate_binary_structure(arr.ndim, 2))
+    return count_objects
+
+
+def get_centroid(contour):
+    moments = cv2.moments(contour)
+    if moments['m00'] != 0:
+        cx = int(moments['m10'] / moments['m00'])
+        cy = int(moments['m01'] / moments['m00'])
+    elif len(contour) == 2:
+        cx = (contour[0][0][0] + contour[1][0][0]) // 2
+        cy = (contour[0][0][1] + contour[1][0][1]) // 2
+    else:
+        cx, cy = contour[0][0][0], contour[0][0][1]
+    return tuple((cx, cy))
 
 
 def get_contour_stats(contour):
@@ -23,17 +45,17 @@ def get_contour_stats(contour):
     contour_stats = {}
     filled_area = cv2.contourArea(xy)
     contour_stats["filled_area"] = filled_area
-    moments = cv2.moments(xy)
-    moments = moments
-    contour_stats["centroid"] = (
-        int(moments['m10'] / moments['m00']),
-        int(moments['m01'] / moments['m00']))
+    centroid = get_centroid(xy)
+    contour_stats["centroid"] = centroid
     contour_stats["aspect_ratio"] = float(w) / h
     contour_stats["boxed_centroid"] = (centroid[0] - x, centroid[1] - y)
     contour_stats["perimeter"] = cv2.arcLength(xy, True)
     contour_stats["extent"] = float(filled_area) / (w * h)
     convex_hull = cv2.convexHull(xy).squeeze(axis=1)
-    contour_stats["solidity"] = filled_area / cv2.contourArea(convex_hull)
+    if cv2.contourArea(convex_hull) != 0:
+        contour_stats["solidity"] = filled_area / cv2.contourArea(convex_hull)
+    else:
+        contour_stats["solidity"] = 0
 
     # remove the last coordinate we added to close the loop
     contour_stats["is_convex"] = cv2.isContourConvex(xy[:-1])
@@ -59,9 +81,24 @@ def get_contour_stats(contour):
     return contour_stats
 
 
+def get_aggregate_stats(stats):
+    expected_keys = 'nodes', 'length', 'contraction', 'start_point', 'end_point'
+    reduced_segments = {key: [] for key in expected_keys}
+    for segment in stats:
+        if len(segment) == 1:
+            for gloabl_attrs, _ in segment.items():
+                reduced_segments[gloabl_attrs] = segment[gloabl_attrs]
+            continue
+        for key in expected_keys:
+            reduced_segments[key] += [segment[key]]
+    return reduced_segments
+
+
 def get_skeleton_stats(image):
     skeleton_image = skimage.morphology.skeletonize(image)
-    return skeleton_stats.SkeletonStats(skeleton_image, cutoff=0)
+    stats_object = skeleton_stats.SkeletonStats(skeleton_image, cutoff=0)
+    stats, object_lines = stats_object.get_stats_general(stats_object.networkx_graph)
+    return get_aggregate_stats(stats)
 
 if __name__ == '__main__':
 
@@ -71,18 +108,21 @@ if __name__ == '__main__':
     parser.add_argument(
         "--annotation_dir",
         help="Absolute path to predicted binary annotation images labels should be 0, 255, or 0, 1 etc", required=True, type=str)
+    parser.add_argument(
+        "--results_dir",
+        help="Absolute path to confusion matrix overlays",
+        required=True, type=str)
 
     args = parser.parse_args()
+    results_dir = args.results_dir
     annotation_dir = args.annotation_dir
     annotation_files = natsort.natsorted(glob.glob(annotation_dir + "*.png"))
 
     # initialize our centroid tracker and binary_image dimensions
     centroid_tracker = CentroidTracker()
-    (H, W) = (None, None)
-    # if the binary_image dimensions are None, grab them
     binary_image = cv2.imread(annotation_files[0], cv2.IMREAD_UNCHANGED)
-    if W is None or H is None:
-        (H, W) = binary_image.shape[:2]
+    shape = binary_image.shape[:2]
+    (height, width) = shape[:2]
 
     # loop over the images in the prediction folder
     for path in annotation_files:
@@ -95,16 +135,28 @@ if __name__ == '__main__':
 
         binary_image = cv2.cvtColor(binary_image, cv2.COLOR_GRAY2RGB)
         # loop over the detections
+        stats_df = []
+
         for contour in contours:
             # Drawing rectangle around the contour
             box = cv2.boundingRect(contour)
             x, y, w, h = box
             binary_image = cv2.rectangle(binary_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            if len(contour) != 1:
-                moments = cv2.moments(contour)
-                cx = int(moments['m10'] / moments['m00'])
-                cy = int(moments['m01'] / moments['m00'])
-                centroids.append(tuple((cx, cy)))
+
+            # Contour stats
+            contour_stats = get_contour_stats(contour)
+            centroids.append(contour_stats["centroid"])
+
+            # Skeleton stats
+            contour_filled = np.zeros((height, width), dtype=np.uint8)
+            contour_filled = cv2.drawContours(contour_filled, [contour], contourIdx=0, color=1, thickness=-1)
+
+            # assert number of objects is 1
+            assert _get_objects(contour_filled) == 1
+            skeletonized_arr_stats = get_skeleton_stats(contour_filled)
+            contour_stats.update(skeletonized_arr_stats)
+            stats_df.append(contour_stats)
+
         # update our centroid tracker using the computed set of rectangles
         objects = centroid_tracker.update(centroids)
 
@@ -115,10 +167,12 @@ if __name__ == '__main__':
             text = "ID {}".format(objectID)
             cv2.putText(
                 binary_image, text, (centroid[0], centroid[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-            # cv2.circle(binary_image, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
 
         # show the output binary_image
         cv2.imshow("binary_image", binary_image)
+        save_path = os.path.join(results_dir, os.path.basename(path))
+
+        cv2.imwrite(save_path, binary_image)
         # 1000 = delay in milliseconds
         key = cv2.waitKey(1000) & 0xFF
 
@@ -128,3 +182,7 @@ if __name__ == '__main__':
 
     # do a bit of cleanup
     cv2.destroyAllWindows()
+
+    # Save the stats dataframe
+    df = pd.DataFrame(stats_df)
+    df.to_csv(results_dir + "contour_skeleton_stats.csv")
