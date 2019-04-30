@@ -103,8 +103,9 @@ def get_skeleton_stats(image):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(
-        description="Track frames saved as pngs of a video in a given folder. Usage:" +
-        "python3 object_tracker.py --annotation_dir=/home/pranathi/Volumes/MicroscopyData/imaging_group/ucsf_microglia/UCSF-2018-05-04-00-00-00-0001_Annotated_Contours_Filled/")
+        description="Track frames saved as pngs of a video in a given folder and save the pngs with ids overlapped and stats per image in a csv file " +
+        "python3 cell_tracking/object_tracker.py --annotation_dir=/home/pranathi/Volumes/MicroscopyData/imaging_group/ucsf_microglia/UCSF-2018-05-04-00-00-00-0001_Annotated_Contours_Filled/ --results_dir=/home/pranathi/Volumes/MicroscopyData/imaging_group/ucsf_microglia/UCSF-2018-05-04-00-00-00-0001_Annotated_Contours_Tracked/" +
+        "To generate a video/gif from images in a folder/directory using ffmpeg run, ffmpeg -framerate 5 -pattern_type glob -i '*.png' -c:v libx264 -pix_fmt yuv420p out.mp4")
     parser.add_argument(
         "--annotation_dir",
         help="Absolute path to predicted binary annotation images labels should be 0, 255, or 0, 1 etc", required=True, type=str)
@@ -173,6 +174,10 @@ if __name__ == '__main__':
         save_path = os.path.join(results_dir, os.path.basename(path))
 
         cv2.imwrite(save_path, binary_image)
+        # Save the stats dataframe
+        df = pd.DataFrame(stats_df)
+        df.to_csv(results_dir + os.path.basename(path).replace(".png", "_") + "contour_skeleton_stats.csv")
+
         # 1000 = delay in milliseconds
         key = cv2.waitKey(1000) & 0xFF
 
@@ -182,7 +187,3 @@ if __name__ == '__main__':
 
     # do a bit of cleanup
     cv2.destroyAllWindows()
-
-    # Save the stats dataframe
-    df = pd.DataFrame(stats_df)
-    df.to_csv(results_dir + "contour_skeleton_stats.csv")
