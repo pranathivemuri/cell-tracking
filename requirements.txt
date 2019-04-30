@@ -28,4 +28,7 @@ prompt-toolkit==1.0.15    # via ipython, jupyter-console
 pygments==2.2.0           # via ipython, jupyter-console, nbconvert, qtconsole, sphinx
 python-dateutil==2.7.2    # via botocore, jupyter-client, matplotlib, moto, pandas
 qtconsole==4.3.1          # via jupyter
-traitlets==4.3.2          # via ipykernel, ipython, ipywidgets, jupyter-client, jupyter-core, nbconvert, 
+traitlets==4.3.2          # via ipykernel, ipython, ipywidgets, jupyter-client, jupyter-core, nbconvert
+matplotlib==2.1.1
+networkx==2.2
+opencv_python==3.2.0.7

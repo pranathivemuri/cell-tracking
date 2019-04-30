@@ -1,9 +1,12 @@
-from centroid_tracker import CentroidTracker
+from cell_tracking.centroid_tracker import CentroidTracker
+import cell_tracking.skeleton_graph_stats as skeleton_stats
+
 import argparse
 import natsort
 import glob
 import cv2
 import numpy as np
+import skimage.morphology
 
 
 def get_contour_stats(contour):
@@ -55,6 +58,10 @@ def get_contour_stats(contour):
     contour_stats["orientation"] = ellipse[2]
     return contour_stats
 
+
+def get_skeleton_stats(image):
+    skeleton_image = skimage.morphology.skeletonize(image)
+    return skeleton_stats.SkeletonStats(skeleton_image, cutoff=0)
 
 if __name__ == '__main__':
 
