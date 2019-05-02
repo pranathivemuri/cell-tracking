@@ -70,7 +70,8 @@ def _get_position_vectors(config_number, dimensions):
     elif dimensions == 2:
         neighbor_values = [(config_number >> digit) & 0x01 for digit in range(8)]
         position_vectors = LIST_POSITION_VECTORS2D
-    return [neighbor_value * position_vector for neighbor_value, position_vector in zip(neighbor_values, position_vectors)]
+    return [
+        neighbor_value * position_vector for neighbor_value, position_vector in zip(neighbor_values, position_vectors)]
 
 
 def set_adjacency_list(arr):
