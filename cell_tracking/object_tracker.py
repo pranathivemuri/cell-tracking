@@ -11,6 +11,10 @@ import pandas as pd
 import scipy.ndimage
 import skimage.morphology
 
+SKELETON_COLOR = [255, 0, 0]
+OVERLAY_ALPHA = 0.7
+CELL_COLOR = [0, 255, 0]
+
 
 def _get_objects(arr):
     label_skel, count_objects = scipy.ndimage.measurements.label(
@@ -94,6 +98,17 @@ def get_aggregate_stats(stats):
     return reduced_segments
 
 
+def get_overlapped_skeleton_image(image, skeleton_image):
+    """
+    Returns overlay the 'image' with the skeleton in red
+    """
+    overlaid_image = np.zeros((image.shape[0], image.shape[1], 3), dtype=np.uint8)
+    overlaid_image[image != 0] = CELL_COLOR
+
+    overlaid_image[skeleton_image != 0] = SKELETON_COLOR
+    return cv2.cvtColor(overlaid_image, cv2.COLOR_BGR2RGB)
+
+
 def get_skeleton_stats(image):
     skeleton_image = skimage.morphology.skeletonize(image)
     stats_object = skeleton_stats.SkeletonStats(skeleton_image, cutoff=0)
@@ -108,7 +123,8 @@ if __name__ == '__main__':
         "and save the pngs with ids overlapped and stats per image in a csv file " +
         "python3 cell_tracking/object_tracker.py" +
         "--annotation_dir=/home/pranathi/UCSF-2018-05-04-00-00-00-0001_Annotated_Contours_Filled/" +
-        "--results_dir=/home/pranathi//UCSF-2018-05-04-00-00-00-0001_Annotated_Contours_Tracked/" +
+        "--tracking_dir=/home/pranathi//UCSF-2018-05-04-00-00-00-0001_Annotated_Contours_Tracked/" +
+        "--skeleton_dir=/home/pranathi//UCSF-2018-05-04-00-00-00-0001_Annotated_Contours_Skeleton/" +
         "To generate a video/gif from images in a folder/directory using ffmpeg run" +
         " ffmpeg -framerate 5 -pattern_type glob -i '*.png' -c:v libx264 -pix_fmt yuv420p out.mp4")
     parser.add_argument(
@@ -116,12 +132,17 @@ if __name__ == '__main__':
         help="Absolute path to predicted binary annotation images labels should be 0, 255, or 0, 1 etc",
         required=True, type=str)
     parser.add_argument(
-        "--results_dir",
-        help="Absolute path to confusion matrix overlays",
+        "--tracking_dir",
+        help="Absolute path to tracking overlays",
+        required=True, type=str)
+    parser.add_argument(
+        "--skeleton_dir",
+        help="Absolute path to skeleton overlays",
         required=True, type=str)
 
     args = parser.parse_args()
-    results_dir = args.results_dir
+    tracking_dir = args.tracking_dir
+    skeleton_dir = args.skeleton_dir
     annotation_dir = args.annotation_dir
     annotation_files = natsort.natsorted(glob.glob(annotation_dir + "*.png"))
 
@@ -171,18 +192,24 @@ if __name__ == '__main__':
         for (objectID, centroid) in objects.items():
             # draw both the ID of the object and the centroid of the
             # object on the output binary_image
-            text = "ID {}".format(objectID)
+            text = "Cell {}".format(objectID)
             cv2.putText(
                 binary_image, text, (centroid[0], centroid[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
         # show the output binary_image
         cv2.imshow("binary_image", binary_image)
-        save_path = os.path.join(results_dir, os.path.basename(path))
-
+        save_path = os.path.join(tracking_dir, os.path.basename(path))
         cv2.imwrite(save_path, binary_image)
+
+        image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        skeleton_image = skimage.morphology.skeletonize(image // 255)
+        overlaid_image = get_overlapped_skeleton_image(image, skeleton_image)
+        save_path = os.path.join(skeleton_dir, os.path.basename(path))
+        cv2.imwrite(save_path, overlaid_image)
+
         # Save the stats dataframe
         df = pd.DataFrame(stats_df)
-        df.to_csv(results_dir + os.path.basename(path).replace(".png", "_") + "contour_skeleton_stats.csv")
+        df.to_csv(skeleton_dir + os.path.basename(path).replace(".png", "_") + "contour_skeleton_stats.csv")
 
         # 1000 = delay in milliseconds
         key = cv2.waitKey(1000) & 0xFF
