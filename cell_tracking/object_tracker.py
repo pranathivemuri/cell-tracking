@@ -1,5 +1,6 @@
-from cell_tracking.centroid_tracker import CentroidTracker
-import cell_tracking.skeleton_graph_stats as skeleton_stats
+import sys
+sys.path.append(".")  # NOQA
+
 
 import argparse
 import natsort
@@ -10,6 +11,10 @@ import os
 import pandas as pd
 import scipy.ndimage
 import skimage.morphology
+
+from cell_tracking.centroid_tracker import CentroidTracker
+import cell_tracking.skeleton_graph_stats as skeleton_stats
+
 
 SKELETON_COLOR = [255, 0, 0]
 OVERLAY_ALPHA = 0.7
@@ -116,6 +121,32 @@ def get_skeleton_stats(image):
     return get_aggregate_stats(stats)
 
 
+def update_trajectory_path_graph(objects, trajectory_path_graph, frame):
+    object_ids = list(trajectory_path_graph.keys())
+
+    # if new cells are formed add more empty rows for tracking
+    for object_id, centroid in objects.items():
+        # initialize trajectory path graph keys
+        if object_id not in object_ids:
+            trajectory_path_graph[object_id] = dict(
+                beginning_frame=0,
+                ending_frame=0,
+                parent_cell=0)
+
+    for object_id, centroid in objects.items():
+        if object_id in object_ids:
+            # trajectory_path_graph[object_id]["beginning_frame"] = frame
+            trajectory_path_graph[object_id]["ending_frame"] = trajectory_path_graph[object_id]["ending_frame"] + 1
+            trajectory_path_graph[object_id]["parent_cell"] = 0
+
+        # new cell or a division from parent cell
+        else:
+            trajectory_path_graph[object_id]["beginning_frame"] = frame
+            trajectory_path_graph[object_id]["ending_frame"] = frame + 1
+            trajectory_path_graph[object_id]["parent_cell"] = 0
+    return trajectory_path_graph
+
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(
@@ -125,6 +156,7 @@ if __name__ == '__main__':
         "--annotation_dir=/home/pranathi/UCSF-2018-05-04-00-00-00-0001_Annotated_Contours_Filled/" +
         "--tracking_dir=/home/pranathi//UCSF-2018-05-04-00-00-00-0001_Annotated_Contours_Tracked/" +
         "--skeleton_dir=/home/pranathi//UCSF-2018-05-04-00-00-00-0001_Annotated_Contours_Skeleton/" +
+        "--max_disappeared=5" +
         "To generate a video/gif from images in a folder/directory using ffmpeg run" +
         " ffmpeg -framerate 5 -pattern_type glob -i '*.png' -c:v libx264 -pix_fmt yuv420p out.mp4")
     parser.add_argument(
@@ -139,6 +171,11 @@ if __name__ == '__main__':
         "--skeleton_dir",
         help="Absolute path to skeleton overlays",
         required=True, type=str)
+    parser.add_argument(
+        "--max_disappeared",
+        help="store the number of maximum consecutive frames a given object" +
+        "is allowed to be marked as disappeared until we need to deregister the object from tracking",
+        required=True, type=int)
 
     args = parser.parse_args()
     tracking_dir = args.tracking_dir
@@ -147,29 +184,26 @@ if __name__ == '__main__':
     annotation_files = natsort.natsorted(glob.glob(annotation_dir + "*.png"))
 
     # initialize our centroid tracker and binary_image dimensions
-    centroid_tracker = CentroidTracker()
+    centroid_tracker = CentroidTracker(args.max_disappeared)
     binary_image = cv2.imread(annotation_files[0], cv2.IMREAD_UNCHANGED)
     shape = binary_image.shape[:2]
     (height, width) = shape[:2]
 
     # loop over the images in the prediction folder
-    for path in annotation_files:
+    for frame_count, path in enumerate(annotation_files):
         binary_image = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+        label_im, _ = scipy.ndimage.label(binary_image)
 
         _, contours, _ = cv2.findContours(binary_image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         # obtain our output predictions, and initialize the list of
         # bounding box rectangles
         centroids = []
 
-        binary_image = cv2.cvtColor(binary_image, cv2.COLOR_GRAY2RGB)
+        rgb_converted_image = cv2.cvtColor(binary_image, cv2.COLOR_GRAY2RGB)
         # loop over the detections
         stats_df = []
 
-        for contour in contours:
-            # Drawing rectangle around the contour
-            box = cv2.boundingRect(contour)
-            x, y, w, h = box
-            binary_image = cv2.rectangle(binary_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        for count, contour in enumerate(contours):
 
             # Contour stats
             contour_stats = get_contour_stats(contour)
@@ -178,6 +212,12 @@ if __name__ == '__main__':
             # Skeleton stats
             contour_filled = np.zeros((height, width), dtype=np.uint8)
             contour_filled = cv2.drawContours(contour_filled, [contour], contourIdx=0, color=1, thickness=-1)
+
+            # Drawing rectangle around the contour
+            box = cv2.boundingRect(contour)
+            x, y, w, h = box
+            rectangle_overlaid_image = cv2.rectangle(rgb_converted_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            rectangle_overlaid_image[contour_filled != 0] = [count, 255, 255]
 
             # assert number of objects is 1
             assert _get_objects(contour_filled) == 1
@@ -188,18 +228,26 @@ if __name__ == '__main__':
         # update our centroid tracker using the computed set of rectangles
         objects = centroid_tracker.update(centroids)
 
+        if frame_count == 0:
+            trajectory_path_graph = {}
+            for object_id in list(objects.keys()):
+                # initialize trajectory path graph keys
+                trajectory_path_graph[object_id] = dict(
+                    beginning_frame=0,
+                    ending_frame=0,
+                    parent_cell=0)
+
+        trajectory_path_graph = update_trajectory_path_graph(objects, trajectory_path_graph, frame_count)
+
         # loop over the tracked objects
         for (objectID, centroid) in objects.items():
-            # draw both the ID of the object and the centroid of the
-            # object on the output binary_image
             text = "Cell {}".format(objectID)
             cv2.putText(
-                binary_image, text, (centroid[0], centroid[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                rectangle_overlaid_image, text, (centroid[0], centroid[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-        # show the output binary_image
-        cv2.imshow("binary_image", binary_image)
+        # save the output binary_image
         save_path = os.path.join(tracking_dir, os.path.basename(path))
-        cv2.imwrite(save_path, binary_image)
+        cv2.imwrite(save_path, cv2.cvtColor(rectangle_overlaid_image, cv2.COLOR_BGR2RGB))
 
         image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
         skeleton_image = skimage.morphology.skeletonize(image // 255)
@@ -211,12 +259,8 @@ if __name__ == '__main__':
         df = pd.DataFrame(stats_df)
         df.to_csv(skeleton_dir + os.path.basename(path).replace(".png", "_") + "contour_skeleton_stats.csv")
 
-        # 1000 = delay in milliseconds
-        key = cv2.waitKey(1000) & 0xFF
+    # Save the tracking path dataframe
+    print(trajectory_path_graph)
+    trajectory_df = pd.DataFrame(pd.DataFrame(trajectory_path_graph))
+    trajectory_df.to_csv(skeleton_dir + "trajectory_path_graph.csv")
 
-        # if the `q` key was pressed, break from the loop
-        if key == ord("q"):
-            break
-
-    # do a bit of cleanup
-    cv2.destroyAllWindows()

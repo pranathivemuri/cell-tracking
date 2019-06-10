@@ -133,6 +133,8 @@ class CentroidTracker():
             # otherwise, if the number of input centroids is greater
             # than the number of existing object centroids we need to
             # register each new input centroid as a trackable object
+            # TODO PV Calculate the distance of this centroid to all of them
+            # If it is close to the previous ones, track them as daughter, if it isn't then its a new cell
             else:
                 for col in unusedCols:
                     self.register(inputCentroids[col])
