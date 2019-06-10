@@ -243,7 +243,13 @@ if __name__ == '__main__':
         for (objectID, centroid) in objects.items():
             text = "Cell {}".format(objectID)
             cv2.putText(
-                rectangle_overlaid_image, text, (centroid[0], centroid[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                rectangle_overlaid_image,
+                text,
+                (centroid[0], centroid[1]),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                2)
 
         # save the output binary_image
         save_path = os.path.join(tracking_dir, os.path.basename(path))
