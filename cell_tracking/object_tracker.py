@@ -4,6 +4,7 @@ sys.path.append(".")  # NOQA
 
 import argparse
 import natsort
+import time
 import glob
 import cv2
 import numpy as np
@@ -31,7 +32,8 @@ def _get_objects(arr):
 def get_aggregate_stats(stats):
     """
     Returns aggregate stss i.e reduces the stats per each branch in the skeleton to a list
-    so there is stats per whole skeleton in form of dictionary. if it has 5 branches has 5 lists for each fo the features
+    so there is stats per whole skeleton in form of dictionary.
+    if it has 5 branches has 5 lists for each fo the features
     nodes, length, contraction, start_point, end_point
     Ex: {'length': [1, 2], 'contraction': [1, 1.2], 'start_point':[(1, 2), (3, 4)], 'end_point': [(5, 6), (7, 8)]}
     """
@@ -80,8 +82,10 @@ def update_trajectory_path_graph(objects, trajectory_path_graph, frame):
     """
     Returns updated trajectory path graph. This function loops through the objects which contain
     the cell id and centroid. If it doesn't exist, it will initialize them with zeros.
-    For cells appearing in not exactly the first frame - updates them as with the frame specified as beginning frame
-    For other cells updates the trajectory path distances displacement based on the previous trajectory path graph dictionary
+    For cells appearing in not exactly the first frame -
+    updates them as with the 'frame' specified as beginning frame
+    For other cells updates the trajectory path distances displacement -
+    based on the previous trajectory path graph dictionary
     """
     object_ids = list(trajectory_path_graph.keys())
 
@@ -102,17 +106,19 @@ def update_trajectory_path_graph(objects, trajectory_path_graph, frame):
         # cell already initialized from a previous frame
         if object_id in object_ids:
             trajectory_path_graph[object_id]["ending_frame"] = trajectory_path_graph[object_id]["ending_frame"] + 1
-            trajectory_path_graph[object_id]["parent_cell"] = 0
-            previous_centroid = trajectory_path_graph[object_id]["ending_centroid"]
-            trajectory_path_graph[object_id]["ending_centroid"] = centroid
-            trajectory_path_graph[object_id]["distance"] = trajectory_path_graph[object_id]["distance"] + dist_between_centroids(centroid, previous_centroid)
-            trajectory_path_graph[object_id]["displacement"] = dist_between_centroids(centroid, trajectory_path_graph[object_id]["starting_centroid"])
 
         # new cell or a division from parent cell
         else:
             trajectory_path_graph[object_id]["beginning_frame"] = frame
             trajectory_path_graph[object_id]["ending_frame"] = frame + 1
-            trajectory_path_graph[object_id]["parent_cell"] = 0
+
+        trajectory_path_graph[object_id]["parent_cell"] = 0
+        previous_centroid = trajectory_path_graph[object_id]["ending_centroid"]
+        trajectory_path_graph[object_id]["ending_centroid"] = centroid
+        trajectory_path_graph[object_id]["distance"] = \
+            trajectory_path_graph[object_id]["distance"] + dist_between_centroids(centroid, previous_centroid)
+        trajectory_path_graph[object_id]["displacement"] = \
+            dist_between_centroids(centroid, trajectory_path_graph[object_id]["starting_centroid"])
 
     return trajectory_path_graph
 
@@ -147,6 +153,7 @@ if __name__ == '__main__':
         "is allowed to be marked as disappeared until we need to deregister the object from tracking",
         required=True, type=int)
 
+    time_start = time.time()
     args = parser.parse_args()
     tracking_dir = args.tracking_dir
     skeleton_dir = args.skeleton_dir
@@ -218,7 +225,7 @@ if __name__ == '__main__':
 
         # save the image with cells tracked and tagged with their IDs and bounding boxes
         save_path = os.path.join(tracking_dir, os.path.basename(path))
-        cv2.imwrite(save_path, cv2.cvtColor(rectangle_overlaid_image, cv2.COLOR_BGR2RGB))
+        cv2.imwrite(save_path, rectangle_overlaid_image)
 
         # save the skeleton image, skeleton is overlaid onto the original binary image
         image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
@@ -235,3 +242,4 @@ if __name__ == '__main__':
     trajectory_df = pd.DataFrame(pd.DataFrame(trajectory_path_graph))
     trajectory_df.to_csv(skeleton_dir + "trajectory_path_graph.csv")
 
+    print("Finished tracking %i frames in %0.2f s" % (len(annotation_files), time.time() - time_start))
