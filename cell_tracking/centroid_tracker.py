@@ -86,9 +86,13 @@ class CentroidTracker():
             usedRows = set()
             usedCols = set()
 
+            assert len(rows) == len(cols)
+
             # loop over the combination of the (row, column) index
             # tuples
+
             for (row, col) in zip(rows, cols):
+
                 # if we have already examined either the row or
                 # column value before, ignore it
                 # val
@@ -116,28 +120,26 @@ class CentroidTracker():
             # equal or greater than the number of input centroids
             # we need to check and see if some of these objects have
             # potentially disappeared
-            if D.shape[0] >= D.shape[1]:
-                # loop over the unused row indexes
-                for row in unusedRows:
-                    # grab the object ID for the corresponding row
-                    # index and increment the disappeared counter
-                    objectID = objectIDs[row]
-                    self.disappeared[objectID] += 1
+            # loop over the unused row indexes
+            for row in unusedRows:
+                # grab the object ID for the corresponding row
+                # index and increment the disappeared counter
+                objectID = objectIDs[row]
+                self.disappeared[objectID] += 1
 
-                    # check to see if the number of consecutive
-                    # frames the object has been marked "disappeared"
-                    # for warrants deregistering the object
-                    if self.disappeared[objectID] > self.maxDisappeared:
-                        self.deregister(objectID)
+                # check to see if the number of consecutive
+                # frames the object has been marked "disappeared"
+                # for warrants deregistering the object
+                if self.disappeared[objectID] > self.maxDisappeared:
+                    self.deregister(objectID)
 
             # otherwise, if the number of input centroids is greater
             # than the number of existing object centroids we need to
             # register each new input centroid as a trackable object
             # TODO PV Calculate the distance of this centroid to all of them
             # If it is close to the previous ones, track them as daughter, if it isn't then its a new cell
-            else:
-                for col in unusedCols:
-                    self.register(inputCentroids[col])
+            for col in unusedCols:
+                self.register(inputCentroids[col])
 
         # return the set of trackable objects
         return self.objects

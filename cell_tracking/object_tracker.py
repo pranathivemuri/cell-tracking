@@ -21,12 +21,37 @@ import cell_tracking.contour_stats as contour_features
 SKELETON_COLOR = [255, 0, 0]
 OVERLAY_ALPHA = 0.7
 CELL_COLOR = [0, 255, 0]
+blue = [0, 0, 235]
+green = [0, 205, 0]
+red = [255, 0, 0]
+cyan = [0, 255, 255]
+magenta = [255, 0, 255]
+yellow = [255, 255, 0]
+pink = [255, 192, 203]
+purple = [147, 112, 219]
+
+CELL_COLORS = {0: blue, 1: green, 2: red, 3: cyan, 4: magenta, 5: yellow, 6: pink, 7: purple, 8: yellow}
 
 
 def _get_objects(arr):
     label_skel, count_objects = scipy.ndimage.measurements.label(
         arr, scipy.ndimage.generate_binary_structure(arr.ndim, 2))
     return count_objects
+
+
+def assert_valid_binary_image(binary_mask):
+    """
+    Assert to see if the binary_mask is:
+    - binary (have more than two values 0,1  or 0, 255) (segmentation masks are always binary)
+    """
+    unique_values = np.unique(binary_mask).tolist()
+    is_binary = (unique_values == [0, 1] or
+                 unique_values == [0, 255] or
+                 unique_values == [0] or
+                 unique_values == [1] or
+                 unique_values == [255])
+    assert is_binary, \
+        "Expected [0, 1] or [0, 255], found incorrect values: {}".format(unique_values)
 
 
 def get_aggregate_stats(stats):
@@ -78,22 +103,22 @@ def dist_between_centroids(centroid1, centroid2):
     return np.linalg.norm(vect)
 
 
-def update_trajectory_path_graph(objects, trajectory_path_graph, frame):
+def update_trajectory_path_graph(current_cell_ids, trajectory_path_graph, frame):
     """
-    Returns updated trajectory path graph. This function loops through the objects which contain
+    Returns updated trajectory path graph. This function loops through the current_cell_ids which contain
     the cell id and centroid. If it doesn't exist, it will initialize them with zeros.
     For cells appearing in not exactly the first frame -
     updates them as with the 'frame' specified as beginning frame
     For other cells updates the trajectory path distances displacement -
     based on the previous trajectory path graph dictionary
     """
-    object_ids = list(trajectory_path_graph.keys())
+    previous_cell_ids = list(trajectory_path_graph.keys())
 
     # if new cells are formed add more empty rows for tracking
-    for object_id, centroid in objects.items():
+    for current_cell_id, centroid in current_cell_ids.items():
         # initialize trajectory path graph keys only for new cell ids
-        if object_id not in object_ids:
-            trajectory_path_graph[object_id] = dict(
+        if current_cell_id not in previous_cell_ids:
+            trajectory_path_graph[current_cell_id] = dict(
                 beginning_frame=0,
                 ending_frame=0,
                 parent_cell=0,
@@ -102,23 +127,24 @@ def update_trajectory_path_graph(objects, trajectory_path_graph, frame):
                 ending_centroid=centroid,
                 displacement=0)
 
-    for object_id, centroid in objects.items():
+    for current_cell_id, centroid in current_cell_ids.items():
         # cell already initialized from a previous frame
-        if object_id in object_ids:
-            trajectory_path_graph[object_id]["ending_frame"] = trajectory_path_graph[object_id]["ending_frame"] + 1
+        if current_cell_id in previous_cell_ids:
+            trajectory_path_graph[current_cell_id]["ending_frame"] = \
+                trajectory_path_graph[current_cell_id]["ending_frame"] + 1
 
         # new cell or a division from parent cell
         else:
-            trajectory_path_graph[object_id]["beginning_frame"] = frame
-            trajectory_path_graph[object_id]["ending_frame"] = frame + 1
+            trajectory_path_graph[current_cell_id]["beginning_frame"] = frame
+            trajectory_path_graph[current_cell_id]["ending_frame"] = frame + 1
 
-        trajectory_path_graph[object_id]["parent_cell"] = 0
-        previous_centroid = trajectory_path_graph[object_id]["ending_centroid"]
-        trajectory_path_graph[object_id]["ending_centroid"] = centroid
-        trajectory_path_graph[object_id]["distance"] = \
-            trajectory_path_graph[object_id]["distance"] + dist_between_centroids(centroid, previous_centroid)
-        trajectory_path_graph[object_id]["displacement"] = \
-            dist_between_centroids(centroid, trajectory_path_graph[object_id]["starting_centroid"])
+        trajectory_path_graph[current_cell_id]["parent_cell"] = 0
+        previous_centroid = trajectory_path_graph[current_cell_id]["ending_centroid"]
+        trajectory_path_graph[current_cell_id]["ending_centroid"] = centroid
+        trajectory_path_graph[current_cell_id]["distance"] = \
+            trajectory_path_graph[current_cell_id]["distance"] + dist_between_centroids(centroid, previous_centroid)
+        trajectory_path_graph[current_cell_id]["displacement"] = \
+            dist_between_centroids(centroid, trajectory_path_graph[current_cell_id]["starting_centroid"])
 
     return trajectory_path_graph
 
@@ -164,7 +190,8 @@ if __name__ == '__main__':
 
     # initialize our centroid tracker and binary_image dimensions
     centroid_tracker = CentroidTracker(args.max_disappeared)
-    binary_image = cv2.imread(annotation_files[0], cv2.IMREAD_UNCHANGED)
+    binary_image = cv2.imread(annotation_files[0], cv2.IMREAD_GRAYSCALE)
+    assert_valid_binary_image(binary_image)
     shape = binary_image.shape[:2]
     (height, width) = shape[:2]
 
@@ -173,9 +200,9 @@ if __name__ == '__main__':
 
     # loop over the images in the binary annotations folder
     for frame_count, path in enumerate(annotation_files):
-        binary_image = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-        label_im, _ = scipy.ndimage.label(binary_image)
-
+        binary_image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        assert_valid_binary_image(binary_image)
+        label_im, _ = scipy.ndimage.measurements.label(binary_image, scipy.ndimage.generate_binary_structure(2, 2))
         _, contours, _ = cv2.findContours(binary_image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         centroids = []
         stats_df = []
@@ -198,22 +225,21 @@ if __name__ == '__main__':
             box = cv2.boundingRect(contour)
             x, y, w, h = box
             rectangle_overlaid_image = cv2.rectangle(rgb_converted_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            rectangle_overlaid_image[contour_filled != 0] = [contour_count, 255, 255]
+            rectangle_overlaid_image[contour_filled != 0] = CELL_COLORS[contour_count]
 
-            # assert number of objects is 1, since we are looking one contour at a time
+            # assert number of contours is 1, since we are looking one contour at a time
             assert _get_objects(contour_filled) == 1
             skeletonized_arr_stats = get_skeleton_stats(contour_filled)
             contour_stats.update(skeletonized_arr_stats)
             stats_df.append(contour_stats)
 
-        # update our centroid tracker using the computed set of rectangles
-        objects = centroid_tracker.update(centroids)
+        # update our centroid tracker using the computed set of centroids
+        current_cell_ids = centroid_tracker.update(centroids)
+        trajectory_path_graph = update_trajectory_path_graph(current_cell_ids, trajectory_path_graph, frame_count)
 
-        trajectory_path_graph = update_trajectory_path_graph(objects, trajectory_path_graph, frame_count)
-
-        # loop over the tracked objects
-        for (objectID, centroid) in objects.items():
-            text = "Cell {}".format(objectID)
+        # loop over the tracked current_cell_ids
+        for (current_cell_id, centroid) in current_cell_ids.items():
+            text = "Cell {}".format(current_cell_id)
             cv2.putText(
                 rectangle_overlaid_image,
                 text,
@@ -225,10 +251,11 @@ if __name__ == '__main__':
 
         # save the image with cells tracked and tagged with their IDs and bounding boxes
         save_path = os.path.join(tracking_dir, os.path.basename(path))
-        cv2.imwrite(save_path, rectangle_overlaid_image)
+        cv2.imwrite(save_path, cv2.cvtColor(rectangle_overlaid_image, cv2.COLOR_BGR2RGB))
 
         # save the skeleton image, skeleton is overlaid onto the original binary image
         image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        assert_valid_binary_image(image)
         skeleton_image = skimage.morphology.skeletonize(image // 255)
         overlaid_image = get_overlapped_skeleton_image(image, skeleton_image)
         save_path = os.path.join(skeleton_dir, os.path.basename(path))
