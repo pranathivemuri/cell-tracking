@@ -21,4 +21,4 @@ python-dateutil==2.7.2    # via botocore, jupyter-client, matplotlib, moto, pand
 qtconsole==4.3.1          # via jupyter
 traitlets==4.3.2          # via ipykernel, ipython, ipywidgets, jupyter-client, jupyter-core, nbconvert
 networkx==2.2
-opencv_python==3.3.0.9
+opencv_python==3.4.0.12
