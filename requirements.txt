@@ -2,7 +2,7 @@ coverage==4.4.2
 flake8==3.2.1
 nose==1.3.7
 numpy==1.16.1
-scipy==1.2.0
+scipy==1.10.0
 scikit-image==0.14.2
 scikit_learn==0.20.2
 trackpy==0.4.1
